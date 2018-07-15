@@ -19,7 +19,7 @@
 package hop
 
 import (
-	. "github.com/bigeagle/gohop/internal"
+	. "github.com/vietom/gohop/internal"
 )
 
 var logger = GetLogger()

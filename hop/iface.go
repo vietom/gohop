@@ -40,16 +40,26 @@ var tun_peer net.IP
 
 func newTun(name string) (iface *water.Interface, err error) {
 
-	iface, err = water.NewTUN(name)
+	//iface, err = water.NewTUN(name)
+	conf := water.Config{
+		water.TUN,
+		water.PlatformSpecificParams{},
+	}
+	iface, err = water.New(conf)
 	if err != nil {
 		return nil, err
 	}
 	logger.Info("interface %v created", iface.Name())
 
-	sargs := fmt.Sprintf("link set dev %s up mtu %d qlen 100", iface.Name(), MTU)
+	//TPRO: open tun0
+	//TPRO: set iface up and mtu and qlen (ifconfig tun0 mtu 1200 up)
+	//sargs := fmt.Sprintf("link set dev %s up mtu %d qlen 100", iface.Name(), MTU)
+	sargs := fmt.Sprintf("%s up mtu %d", iface.Name(), MTU)
 	args := strings.Split(sargs, " ")
-	cmd := exec.Command("ip", args...)
-	logger.Info("ip %s", sargs)
+	//cmd := exec.Command("ip", args...)
+	cmd := exec.Command("ifconfig", args...)
+	//logger.Info("ip %s", sargs)
+	logger.Info("ifconfig %s", sargs)
 	err = cmd.Run()
 	if err != nil {
 		return nil, err
@@ -58,6 +68,7 @@ func newTun(name string) (iface *water.Interface, err error) {
 	return iface, nil
 }
 
+//FIXME: tpro
 func setTunIP(iface *water.Interface, ip net.IP, subnet *net.IPNet) (err error) {
 	ip = ip.To4()
 	logger.Debug("%v", ip)
@@ -70,25 +81,51 @@ func setTunIP(iface *water.Interface, ip net.IP, subnet *net.IPNet) (err error) 
 	peer[3]++
 	tun_peer = peer
 
-	sargs := fmt.Sprintf("addr add dev %s local %s peer %s", iface.Name(), ip, peer)
-	args := strings.Split(sargs, " ")
-	cmd := exec.Command("ip", args...)
-	logger.Info("ip %s", sargs)
+	// ifconfig utun3 4.4.4.4 4.4.4.5
+	//sargs := fmt.Sprintf("addr add dev %s local %s peer %s", iface.Name(), ip, peer)
+	sargs := fmt.Sprintf("ifconfig %s %s %s", iface.Name(), ip, peer)
+	//args := strings.Split(sargs, " ")
+	//cmd := exec.Command("ip", args...)
+	//logger.Info("ip %s", sargs)
+	cmd := exec.Command("bash", "-c", sargs)
+	logger.Info(sargs)
 	err = cmd.Run()
 	if err != nil {
 		return err
 	}
 
-	sargs = fmt.Sprintf("route add %s via %s dev %s", subnet, peer, iface.Name())
-	args = strings.Split(sargs, " ")
-	cmd = exec.Command("ip", args...)
-	logger.Info("ip %s", sargs)
+	// route -n add -net %s %s
+	//sargs = fmt.Sprintf("route add %s via %s dev %s", subnet, peer, iface.Name())
+	sargs = fmt.Sprintf("route -n add -net %s %s", subnet, peer)
+	//args = strings.Split(sargs, " ")
+	//cmd = exec.Command("ip", args...)
+	//logger.Info("ip %s", sargs)
+	cmd = exec.Command("bash", "-c", sargs)
+	logger.Info(sargs)
 	err = cmd.Run()
 	return err
 }
 
-// return net gateway (default route) and nic
+//route -n get default | grep gateway |awk '{print $2}'
 func getNetGateway() (gw, dev string, err error) {
+	gwCmd := "route -n get default | grep gateway | awk '{print $2}'"
+	oGw, err := exec.Command("bash", "-c", gwCmd).Output()
+	if err != nil {
+		return "", "", err
+	}
+	ifaceCmd := "route -n get default | grep interface | awk '{print $2}'"
+	oIface, err := exec.Command("bash", "-c", ifaceCmd).Output()
+	if err != nil {
+		return "", "", err
+	}
+	logger.Info(oGw)
+	logger.Info(oIface)
+	return string(oGw), string(oIface), nil
+}
+
+// return net gateway (default route) and nic
+//FIXME: tpro: no /proc/net/route
+func getNetGatewayOld() (gw, dev string, err error) {
 
 	file, err := os.Open("/proc/net/route")
 	if err != nil {
@@ -144,9 +181,11 @@ func getNetGateway() (gw, dev string, err error) {
 }
 
 // add route
+//FIXME: tpro: route -n add -net 10.67.0.0/16  192.168.120.254
 func addRoute(dest, nextHop, iface string) {
 
-	scmd := fmt.Sprintf("ip -4 r a %s via %s dev %s", dest, nextHop, iface)
+	//scmd := fmt.Sprintf("ip -4 r a %s via %s dev %s", dest, nextHop, iface)
+	scmd := fmt.Sprintf("route -n add -net %s %s", dest, nextHop)
 	cmd := exec.Command("bash", "-c", scmd)
 	logger.Info(scmd)
 	err := cmd.Run()
@@ -158,11 +197,14 @@ func addRoute(dest, nextHop, iface string) {
 }
 
 // delete route
+//FIXME: tpro: route -n delete -net 10.67.0.0/16  192.168.120.254
 func delRoute(dest string) {
-	sargs := fmt.Sprintf("-4 route del %s", dest)
-	args := strings.Split(sargs, " ")
-	cmd := exec.Command("ip", args...)
-	logger.Info("ip %s", sargs)
+	//sargs := fmt.Sprintf("-4 route del %s", dest)
+	sargs := fmt.Sprintf("route -n delete -net %s", dest)
+	//args := strings.Split(sargs, " ")
+	//cmd := exec.Command("ip", args...)
+	cmd := exec.Command("bash", "-c", sargs)
+	logger.Info(sargs)
 	err := cmd.Run()
 
 	if err != nil {
@@ -171,14 +213,17 @@ func delRoute(dest string) {
 }
 
 // redirect default gateway
+//FIXME: tpro: route -n add -net 10.67.0.0/16  192.168.120.254
 func redirectGateway(iface, gw string) error {
 	subnets := []string{"0.0.0.0/1", "128.0.0.0/1"}
 	logger.Info("Redirecting Gateway")
 	for _, subnet := range subnets {
-		sargs := fmt.Sprintf("-4 route add %s via %s dev %s", subnet, gw, iface)
-		args := strings.Split(sargs, " ")
-		cmd := exec.Command("ip", args...)
-		logger.Info("ip %s", sargs)
+		//sargs := fmt.Sprintf("-4 route add %s via %s dev %s", subnet, gw, iface)
+		//args := strings.Split(sargs, " ")
+		//cmd := exec.Command("ip", args...)
+		sargs := fmt.Sprintf("route -n add -net %s %s", subnet, gw)
+		logger.Info(sargs)
+		cmd := exec.Command("bash", "-c", sargs)
 		err := cmd.Run()
 
 		if err != nil {
