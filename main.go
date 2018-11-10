@@ -24,8 +24,8 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/bigeagle/gohop/hop"
-	. "github.com/bigeagle/gohop/internal"
+	"github.com/vietom/gohop/hop"
+	. "github.com/vietom/gohop/internal"
 )
 
 var srvMode, cltMode, debug, getVersion bool

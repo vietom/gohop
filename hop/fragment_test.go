@@ -3,7 +3,7 @@ package hop
 import (
 	"fmt"
 	"testing"
-	// "github.com/bigeagle/gohop/logging"
+	// "github.com/vietom/gohop/logging"
 )
 
 type counter struct {
